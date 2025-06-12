@@ -1,0 +1,123 @@
+-- Create the database if it doesn't exist yet
+CREATE DATABASE IF NOT EXISTS `security_system` 
+DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Select the database to use
+USE `security_system`;
+
+--
+-- Table structure for table `users`
+-- (Stores approved security guards and potentially admins, though current admin is hardcoded)
+--
+DROP TABLE IF EXISTS `users`; -- Optional: Drop if exists for a clean slate
+CREATE TABLE `users` (
+  `id` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Security ID, e.g., SG001 (Assigned by Admin)',
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stored as PLAINTEXT as per project requirement',
+  `duty_area` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `shift` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'Timestamp of when the user record was created (approved)',
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Timestamp of the last update to the record',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `pending_users`
+-- (Stores registration requests awaiting admin approval)
+--
+DROP TABLE IF EXISTS `pending_users`; -- Optional: Drop if exists
+CREATE TABLE `pending_users` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'Unique ID for the pending request',
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stored as PLAINTEXT',
+  `id_photo_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Filename of the uploaded ID photo (e.g., in uploads/ folder)',
+  `requested_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'Timestamp of when the registration request was submitted',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `attendance`
+-- (Logs attendance status of security guards)
+--
+DROP TABLE IF EXISTS `attendance`; -- Optional: Drop if exists
+CREATE TABLE `attendance` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'Unique ID for the attendance record',
+  `security_id` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'FK referencing users.id',
+  `date` date NOT NULL COMMENT 'The specific date for which attendance is recorded',
+  `status` enum('present','absent','emergency_leave') COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Attendance status for that day',
+  `login_time` time DEFAULT NULL COMMENT 'Time of the first login on that particular date if status was present',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_attendance_security_date` (`security_id`,`date`) COMMENT 'Ensures one attendance record per guard per day',
+  KEY `fk_attendance_users` (`security_id`),
+  CONSTRAINT `fk_attendance_users` FOREIGN KEY (`security_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `notifications`
+-- (Stores messages sent by admin to security guards)
+--
+DROP TABLE IF EXISTS `notifications`; -- Optional: Drop if exists
+CREATE TABLE `notifications` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'Unique ID for the notification',
+  `security_id` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'FK referencing users.id (recipient)',
+  `message` text COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Content of the notification',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'Timestamp when message was sent',
+  `is_read` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Flag: 0 for unread, 1 for read (currently basic implementation)',
+  PRIMARY KEY (`id`),
+  KEY `fk_notifications_users` (`security_id`),
+  CONSTRAINT `fk_notifications_users` FOREIGN KEY (`security_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `shift_requests`
+-- (Stores shift change requests from security guards)
+--
+DROP TABLE IF EXISTS `shift_requests`; -- Optional: Drop if exists
+CREATE TABLE `shift_requests` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'Unique ID for the shift request',
+  `security_id` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'FK referencing users.id',
+  `current_shift` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `desired_shift` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason` text COLLATE utf8mb4_unicode_ci,
+  `status` enum('pending','approved','rejected') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT 'Status of the request (though currently requests are deleted after admin action)',
+  `requested_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'When request was submitted',
+  `responded_at` timestamp NULL DEFAULT NULL COMMENT 'When admin responded (future enhancement)',
+  PRIMARY KEY (`id`),
+  KEY `fk_shift_requests_users` (`security_id`),
+  CONSTRAINT `fk_shift_requests_users` FOREIGN KEY (`security_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `emergency_leaves`
+-- (Stores emergency leave requests from security guards)
+--
+DROP TABLE IF EXISTS `emergency_leaves`; -- Optional: Drop if exists
+CREATE TABLE `emergency_leaves` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'Unique ID for the leave request',
+  `security_id` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'FK referencing users.id',
+  `reason` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `leave_date` date NOT NULL COMMENT 'Date for which leave is requested',
+  `status` enum('pending','approved','rejected') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'approved' COMMENT 'Status (current logic implies auto-approval by setting attendance)',
+  `requested_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'When leave was requested',
+  PRIMARY KEY (`id`),
+  KEY `fk_emergency_leaves_users` (`security_id`),
+  CONSTRAINT `fk_emergency_leaves_users` FOREIGN KEY (`security_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Optional: Insert sample admin or initial data if needed
+-- (Note: Admin login is hardcoded in process_login.php in this project)
+--
+-- Example: If you wanted a way to see data for testing without full registration/approval
+-- (Remove or comment out if you will populate through the app)
+/*
+INSERT INTO `users` (`id`, `name`, `password`, `duty_area`, `shift`) VALUES
+('SG001', 'Test Guard One', 'pass001', 'Main Entrance', '5 am to 1 pm'),
+('SG002', 'Test Guard Two', 'pass002', 'Academic Building', '1 pm to 9 pm');
+
+INSERT INTO `pending_users` (`name`, `password`, `id_photo_path`) VALUES
+('Applicant One', 'apply123', 'sample_photo_1.jpg'),
+('Applicant Two', 'apply456', 'sample_photo_2.jpg');
+*/
